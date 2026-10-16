@@ -36,7 +36,6 @@ pipeline {
             }
         }
 
-
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
@@ -74,11 +73,8 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 sh '''
-                    docker build \
-                      -t blogapp-backend:${IMAGE_TAG} ./backend
-
-                    docker build \
-                      -t blogapp-frontend:${IMAGE_TAG} ./frontend
+                    docker build -t blogapp-backend:${IMAGE_TAG} ./backend
+                    docker build -t blogapp-frontend:${IMAGE_TAG} ./frontend
 
                     docker tag blogapp-backend:${IMAGE_TAG} blogapp-backend:latest
                     docker tag blogapp-frontend:${IMAGE_TAG} blogapp-frontend:latest
@@ -120,7 +116,7 @@ pipeline {
         }
 
         failure {
-            echo 'Pipeline failed. Check the stage console output for the exact error.'
+            echo 'Pipeline failed. Check the stage console output.'
         }
     }
 }
