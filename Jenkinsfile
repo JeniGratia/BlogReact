@@ -36,6 +36,7 @@ pipeline {
             }
         }
 
+
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
@@ -46,12 +47,15 @@ pipeline {
                         )
                     ]) {
                         sh '''
+                            mkdir -p "$WORKSPACE/.scannerwork"
+                            chmod -R 777 "$WORKSPACE/.scannerwork"
+
                             docker run --rm --network host \
                               -e SONAR_HOST_URL="$SONAR_HOST_URL" \
                               -e SONAR_TOKEN="$SONAR_TOKEN" \
                               -v "$WORKSPACE:/usr/src" \
                               sonarsource/sonar-scanner-cli \
-                              -Dsonar.working.directory=/usr/src/.scannerwork \
+                              -Dsonar.working.directory=/tmp/sonar-work \
                               -Dsonar.scanner.metadataFilePath=/usr/src/report-task.txt
                         '''
                     }
