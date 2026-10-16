@@ -65,12 +65,77 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
+                withSonarQubeEnv('SonarQube') {
+                    withCredentials([
+                        string(
+                            credentialsId: 'sonar-token',
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+                        sh '''
+                            set -eu
+
+                            if [ ! -f report-task.txt ]; then
+                                echo "ERROR: report-task.txt missing"
+                                exit 1
+                            fi
+
+                            TASK_ID=$(sed -n 's/^ceTaskId=//p' report-task.txt)
+
+                            if [ -z "$TASK_ID" ]; then
+                                echo "ERROR: SonarQube task ID missing"
+                                exit 1
+                            fi
+
+                            ANALYSIS_ID=""
+
+                            for i in $(seq 1 60); do
+                                RESPONSE=$(curl -fsS \
+                                    -u "$SONAR_TOKEN:" \
+                                    "$SONAR_HOST_URL/api/ce/task?id=$TASK_ID")
+
+                                STATUS=$(printf '%s' "$RESPONSE" |
+                                    python3 -c 'import json,sys; print(json.load(sys.stdin)["task"]["status"])')
+
+                                echo "SonarQube task status: $STATUS"
+
+                                if [ "$STATUS" = "SUCCESS" ]; then
+                                    ANALYSIS_ID=$(printf '%s' "$RESPONSE" |
+                                        python3 -c 'import json,sys; print(json.load(sys.stdin)["task"].get("analysisId",""))')
+                                    break
+                                fi
+
+                                if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "CANCELED" ]; then
+                                    echo "ERROR: SonarQube processing failed"
+                                    exit 1
+                                fi
+
+                                sleep 5
+                            done
+
+                            if [ -z "$ANALYSIS_ID" ]; then
+                                echo "ERROR: SonarQube processing timed out"
+                                exit 1
+                            fi
+
+                            GATE=$(curl -fsS \
+                                -u "$SONAR_TOKEN:" \
+                                "$SONAR_HOST_URL/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" |
+                                python3 -c 'import json,sys; print(json.load(sys.stdin)["projectStatus"]["status"])')
+
+                            echo "Quality Gate: $GATE"
+
+                            if [ "$GATE" != "OK" ]; then
+                                echo "ERROR: Quality Gate did not pass"
+                                exit 1
+                            fi
+
+                            echo "Quality Gate passed successfully"
+                        '''
+                    }
                 }
             }
         }
-
         stage('Build Docker Images') {
             steps {
                 sh '''
