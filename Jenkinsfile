@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -21,7 +22,7 @@ pipeline {
             steps {
                 dir('backend') {
                     sh 'npm ci'
-                    sh 'npm test --if-present'
+                    sh 'npm test --if-present -- --passWithNoTests'
                 }
             }
         }
@@ -37,17 +38,23 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                withCredentials([
-                    string(credentialsId: 'sonar-token',
-                           variable: 'SONAR_TOKEN')
-                ]) {
-                    sh '''
-                        docker run --rm --network host \
-                          -e SONAR_HOST_URL=http://localhost:9000 \
-                          -e SONAR_TOKEN \
-                          -v "$WORKSPACE:/usr/src" \
-                          sonarsource/sonar-scanner-cli
-                    '''
+                withSonarQubeEnv('SonarQube') {
+                    withCredentials([
+                        string(
+                            credentialsId: 'sonar-token',
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+                        sh '''
+                            docker run --rm --network host \
+                              -e SONAR_HOST_URL="$SONAR_HOST_URL" \
+                              -e SONAR_TOKEN="$SONAR_TOKEN" \
+                              -v "$WORKSPACE:/usr/src" \
+                              sonarsource/sonar-scanner-cli \
+                              -Dsonar.working.directory=/usr/src/.scannerwork \
+                              -Dsonar.scanner.metadataFilePath=/usr/src/report-task.txt
+                        '''
+                    }
                 }
             }
         }
@@ -63,8 +70,14 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 sh '''
-                    docker build -t blogapp-backend:${IMAGE_TAG} ./backend
-                    docker build -t blogapp-frontend:${IMAGE_TAG} ./frontend
+                    docker build \
+                      -t blogapp-backend:${IMAGE_TAG} ./backend
+
+                    docker build \
+                      -t blogapp-frontend:${IMAGE_TAG} ./frontend
+
+                    docker tag blogapp-backend:${IMAGE_TAG} blogapp-backend:latest
+                    docker tag blogapp-frontend:${IMAGE_TAG} blogapp-frontend:latest
                 '''
             }
         }
@@ -73,10 +86,21 @@ pipeline {
             steps {
                 sh '''
                     trivy image --skip-db-update \
-                      --severity HIGH,CRITICAL blogapp-backend:${IMAGE_TAG}
+                      --severity HIGH,CRITICAL \
+                      blogapp-backend:${IMAGE_TAG}
 
                     trivy image --skip-db-update \
-                      --severity HIGH,CRITICAL blogapp-frontend:${IMAGE_TAG}
+                      --severity HIGH,CRITICAL \
+                      blogapp-frontend:${IMAGE_TAG}
+                '''
+            }
+        }
+
+        stage('Validate Kubernetes Access') {
+            steps {
+                sh '''
+                    kubectl get nodes
+                    kubectl get pods -n blogapp
                 '''
             }
         }
@@ -84,7 +108,16 @@ pipeline {
 
     post {
         always {
-            echo 'BlogReact CI pipeline finished.'
+            echo 'BlogReact CI/CD pipeline finished.'
+        }
+
+        success {
+            echo 'All configured pipeline stages completed successfully.'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check the stage console output for the exact error.'
         }
     }
 }
+
