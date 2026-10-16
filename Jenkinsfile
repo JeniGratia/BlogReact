@@ -23,7 +23,7 @@ pipeline {
             steps {
                 dir('backend') {
                     sh 'npm ci'
-                    sh 'npm test --if-present -- --passWithNoTests'
+                    sh 'npm test --if-present'
                 }
             }
         }
@@ -40,12 +40,7 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    withCredentials([
-                        string(
-                            credentialsId: 'sonar-token',
-                            variable: 'SONAR_TOKEN'
-                        )
-                    ]) {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                         sh '''
                             docker run --rm --network host \
                               --user "$(id -u):$(id -g)" \
@@ -66,12 +61,7 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    withCredentials([
-                        string(
-                            credentialsId: 'sonar-token',
-                            variable: 'SONAR_TOKEN'
-                        )
-                    ]) {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                         sh '''
                             set -eu
 
@@ -136,6 +126,7 @@ pipeline {
                 }
             }
         }
+
         stage('Build Docker Images') {
             steps {
                 sh '''
@@ -149,14 +140,22 @@ pipeline {
         }
 
         stage('Trivy Image Scan') {
+            environment {
+                TRIVY_SKIP_DB_UPDATE = 'false'
+                TRIVY_SKIP_JAVA_DB_UPDATE = 'false'
+                TRIVY_CACHE_DIR = "${WORKSPACE}/.trivy-cache"
+            }
             steps {
                 sh '''
-                    trivy image --skip-db-update \
-                      --severity HIGH,CRITICAL \
+                    set -eu
+
+                    trivy image --download-db-only --no-progress
+
+                    # exit-code 0 = report only. Change to 1 to fail the build on findings.
+                    trivy image --no-progress --severity HIGH,CRITICAL --exit-code 0 \
                       blogapp-backend:${IMAGE_TAG}
 
-                    trivy image --skip-db-update \
-                      --severity HIGH,CRITICAL \
+                    trivy image --no-progress --severity HIGH,CRITICAL --exit-code 0 \
                       blogapp-frontend:${IMAGE_TAG}
                 '''
             }
@@ -186,3 +185,4 @@ pipeline {
         }
     }
 }
+
