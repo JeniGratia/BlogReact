@@ -36,6 +36,7 @@ pipeline {
             }
         }
 
+
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
@@ -46,12 +47,14 @@ pipeline {
                         )
                     ]) {
                         sh '''
-                            mkdir -p "$WORKSPACE/.scannerwork"
-                            chmod -R 777 "$WORKSPACE/.scannerwork"
+                            JENKINS_UID=$(id -u)
+                            JENKINS_GID=$(id -g)
 
                             docker run --rm --network host \
+                              --user "$JENKINS_UID:$JENKINS_GID" \
                               -e SONAR_HOST_URL="$SONAR_HOST_URL" \
                               -e SONAR_TOKEN="$SONAR_TOKEN" \
+                              -e HOME=/tmp \
                               -v "$WORKSPACE:/usr/src" \
                               sonarsource/sonar-scanner-cli \
                               -Dsonar.working.directory=/tmp/sonar-work \
